@@ -156,7 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     // read data:
     if let Some(value) = docs.read("rust-book").await? {
         let Document { source, text } = value;
-        println!("{source} — {text}");
+        println!("[rust-book] {source} — {text}");
     }
 
     // remove data:

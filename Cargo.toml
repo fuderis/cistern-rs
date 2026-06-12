@@ -1,6 +1,6 @@
 [package]
 name = "cistern"
-description = "A high-level, asynchronous RAG-framework built on top of LanceDB"
+description = "A high-level, asynchronous storage abstraction layer built for AI-driven applications, LLM orchestrators, and local agents."
 keywords = ["rag", "frawework", "ai", "embeddings"]
 categories = ["development-tools", "rust-patterns"]
 version = "0.2.0"

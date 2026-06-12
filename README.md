@@ -45,7 +45,7 @@ cargo add cistern --features full
 
 ## Examples:
 
-### Rag (LanceDB) [feature: `rag`]:
+### Rag (LanceDB) [feature `rag`]:
 
 **Powered by LanceDB** and **Apache Arrow**. Perfect for semantic knowledge bases, long-term agent memory, and chunk retrieval.
 Features automated distributed 64-bit ID padding and integrated IVF-PQ index tuning.
@@ -113,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
 }
 ```
 
-### Key-Value (SledDB) [feature: `kv`]:
+### Key-Value (SledDB) [feature `kv`]:
 
 **Powered by Sled**. Built for uncompromising speed and ultra-low latency. Engineered specifically for real-time AI
 session tracking, sub-millisecond context swapping and internal tool caching.

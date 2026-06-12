@@ -3,7 +3,7 @@ name = "cistern"
 description = "A high-level, asynchronous RAG-framework built on top of LanceDB"
 keywords = ["rag", "frawework", "ai", "embeddings"]
 categories = ["development-tools", "rust-patterns"]
-version = "0.1.0"
+version = "0.2.0"
 license = "MIT"
 authors = ["Bulat Sh. <synapdrake@ya.ru>"]
 repository = "https://github.com/fuderis/cistern-rs"
@@ -16,8 +16,16 @@ atoman = { version = "0.2.20", features = ["stream"] }
 macron = { version = "0.1.18", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149" }
-lancedb = { version = "0.27.1" }
-arrow-array = { version = "57.3.0" }
-arrow-schema = { version = "57.3.0" }
-serde_arrow = { version = "0.14.0", features = ["arrow-57"] }
 rand = { version = "0.10.1" }
+
+lancedb = { version = "0.27.1", optional = true }
+arrow-array = { version = "57.3.0", optional = true }
+arrow-schema = { version = "57.3.0", optional = true }
+serde_arrow = { version = "0.14.0", features = ["arrow-57"], optional = true }
+
+sled = { version = "0.34.7", optional = true }
+
+[features]
+full = ["rag", "kv"]
+rag = ["dep:lancedb","dep:arrow-array","dep:arrow-schema","dep:serde_arrow"]
+kv = ["dep:sled"]

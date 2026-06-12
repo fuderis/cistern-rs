@@ -2,10 +2,15 @@
 pub mod error;
 pub mod prelude;
 
-pub mod context;
-pub use context::{Context, Record};
+pub mod cistern;
+pub use cistern::{Backend, Cistern};
 
-pub use arrow_array;
-pub use arrow_schema;
-pub use lancedb;
-pub use serde_arrow;
+#[cfg(feature = "rag")]
+pub mod rag;
+#[cfg(feature = "rag")]
+pub use rag::{Rag, RagRecord, RagTable};
+
+#[cfg(feature = "kv")]
+pub mod kv;
+#[cfg(feature = "kv")]
+pub use kv::{Kv, KvTable};

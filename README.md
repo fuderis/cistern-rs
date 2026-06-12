@@ -6,81 +6,169 @@
 [crates-io]: https://img.shields.io/badge/crates.io-fc8d62?style=for-the-badge&labelColor=555555&logo=rust
 [docs-rs]: https://img.shields.io/badge/docs.rs-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs
 
-# Cistern: A Friendly RAG Framework based on LanceDB
+# Cistern: A Friendly Framework based on LanceDB & Sled
 
-Cistern is a high-level, asynchronous RAG (Retrieval-Augmented Generation) framework built on top of LanceDB and Apache Arrow. 
-It abstracts away the complex, low-level mechanics of Arrow arrays and vector indexing into a clean, developer-friendly API
-designed for building robust AI-driven applications.
+Cistern is a high-level, asynchronous storage abstraction layer built for AI-driven applications, LLM orchestrators, and local agents.
+It acts as a reliable, zero-boilerplate reservoir that unifies heavy semantic vector search and lightning-fast key-value state
+management under a single architectural pattern.<br>
 
-Whether you are building a production-grade semantic search engine or a local LLM knowledge base, Cistern acts as a reliable,
-monolithic reservoir—allowing you to fluidly "pour in" raw data chunks and "draw out" precise context seamlessly.
+Instead of wrestling with low-level database configurations, raw byte arrays, or memory-layout mapping,
+Cistern leverages standard Rust types and `serde` serialization to expose a clean, developer-friendly API.
 
 ## Features:
 
-* **Clean Type Abstraction**
-  Say goodbye to manual Arrow `RecordBatch` construction and type downcasting. Cistern completely wraps `arrow_array` complexities, allowing you to work with native Rust structs and types using standard `serde` serialization.
-* **High-Performance Bulk Insertion**
-  Features an idiomatic `write_batch` implementation that takes data as cohesive pairs (`Vec<(Vec<f32>, T)>`). It instantly flattens high-dimensional vectors into Apache Arrow's memory layout in a single pass, speeding up data ingestion by up to 10x compared to atomic writes.
-* **Race-Condition Safety**
-  Engineered for highly concurrent environments. Table creation uses strict `CreateTableMode::Create` verification under the hood, ensuring multiple async workers never silently overwrite each other's data during a cold start.
-* **Collision-Free Distributed IDs**
-  Generates high-performance 64-bit (`u64`) keys utilizing a Snowflake-like architecture (42 bits for time, 22 bits for crypto-safe randomness). Even during lightning-fast bulk imports, IDs are sequentially padded to mathematically guarantee uniqueness without the overhead of string UUIDs.
-* **Smart Search Optimization**
-  Built-in support for **IVF-PQ** (Inverted File with Product Quantization) index tuning. Cistern accelerates vector lookups on large-scale datasets by partitioning embedding spaces into quantization clusters, while gracefully and silently bypassing index builds on small datasets to prevent cold-start crashes.
-* **Thread-Safe & Clonable**
-  The main `Context` structure natively encapsulates LanceDB's thread-safe connections. It is fully `Send + Sync` and cheaply clonable out of the box, making it trivial to inject into state managers for web frameworks like `Axum` or `Actix-web`.
+* **Modular Backend Architecture:** Choose between heavy semantic processing (`Rag`) or high-performance
+  state management (`Kv`) via feature flags, completely isolating compile-time dependencies.
+* **Clean Type Abstraction:** No manual Arrow `RecordBatch` construction or raw key-to-byte serialization.
+  Work natively with your own Rust structures.
+* **Thread-Safe & Cheaply Clonable:** The core `Cistern<B>` engine handles internal connection pooling.
+  It is fully `Send + Sync` and can be easily shared across `tokio` threads or web frameworks like `Axum`.
+* **Zero Cross-Contamination:** Built around clean Rust trait boundaries. If you only use the KV engine,
+  heavy dependencies like LanceDB and Apache Arrow won't even compile into your binary.
+
+## Installation:
+
+* To use only Key-Value (Sled)
+```bash
+cargo add cistern --features kv
+```
+
+* To use Vector Search only (LanceDB)
+```bash
+cargo add cistern --features rag
+```
+
+* Or all of them together
+```bash
+cargo add cistern --features full
+```
 
 ## Examples:
 
-### Quick start:
+### Rag (LanceDB) [feature: `rag`]:
+
+**Powered by LanceDB** and **Apache Arrow**. Perfect for semantic knowledge bases, long-term agent memory, and chunk retrieval.
+Features automated distributed 64-bit ID padding and integrated IVF-PQ index tuning.
+
 ```rust
-use cistern::{Context, Record};
+use cistern::{Cistern, Rag, RagRecord};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct DocumentChunk {
+struct Document {
     text: String,
     source: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
-    // 1. Connect to database:
-    let ctx = Context::connect("./database").await?;
-    let table = "documents";
+    // connect to db:
+    let db = Cistern::<Rag>::connect(".database").await?;
+    let docs = db.open_table("documents").await?;
 
-    // 2. Prepare data:
-    let chunk_1 = DocumentChunk {
-        text: "Rust is a programming language that ensures memory safety.".to_string(),
-        source: "book.pdf".to_string(),
-    };
-    let chunk_2 = DocumentChunk {
-        text: "LanceDB uses the Lance format for fast vector search.".to_string(),
-        source: "wiki.md".to_string(),
-    };
+    // write data:
+    docs.write(
+        vec![0.1, 0.2, 0.3, 0.4],
+        Document {
+            text: "Rust is a programming language that ensures memory safety.".to_string(),
+            source: "book.pdf".to_string(),
+        },
+    )
+    .await?;
 
-    let batch = vec![
-        (vec![0.1, 0.2, 0.3, 0.4], chunk_1),
-        (vec![0.5, 0.6, 0.7, 0.8], chunk_2),
-    ];
+    // write batch data:
+    docs.write_batch(vec![
+        (
+            vec![0.2, 0.7, 0.3, 0.5],
+            Document {
+                text: "Async Rust empowers developers to write highly performant, scalable, and responsive applications.".to_string(),
+                source: "docs.md".to_string(),
+            },
+        ),
+        (
+            vec![0.5, 0.6, 0.7, 0.8],
+            Document {
+                text: "LanceDB uses the Lance format for fast vector search.".to_string(),
+                source: "wiki.md".to_string(),
+            },
+        ),
+    ])
+    .await?;
 
-    // 3. Write data:
-    ctx.write_batch(table, batch).await?;
-
-    // 4. Search data:
-    let query_vector = vec![0.1, 0.2, 0.25, 0.35];
-    if let Some(results) = ctx
-        .read::<DocumentChunk>(table, query_vector, 2, 0.85)
-        .await?
-    {
-        for Record { id, data } in results {
-            let DocumentChunk { source, text } = data;
+    // read data:
+    if let Some(records) = docs.read(vec![0.1, 0.2, 0.25, 0.35], 10, 0.85).await? {
+        for RagRecord { id, data } in records {
+            let Document { source, text } = data;
             println!("[{id}] {source} — {text}");
         }
     }
 
-    // 5. Optimize search index (IVF-PQ):
-    ctx.optimize_index(table, 256, 16).await?;
+    // optimize table indexing:
+    docs.index(256, 16).await?;
+
+    // remove table:
+    db.remove_table("documents").await?;
+
+    Ok(())
+}
+```
+
+### Key-Value (SledDB) [feature: `kv`]:
+
+**Powered by Sled**. Built for uncompromising speed and ultra-low latency. Engineered specifically for real-time AI
+session tracking, sub-millisecond context swapping and internal tool caching.
+
+```rust
+use cistern::{Cistern, Kv};
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Document {
+    text: String,
+    source: String,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    // connect to db:
+    let db = Cistern::<Kv>::connect(".database").await?;
+    let docs = db.open_table("documents").await?;
+
+    // write data:
+    docs.write(
+        "rust-book",
+        Document {
+            text: "Rust is a programming language that ensures memory safety.".to_string(),
+            source: "book.pdf".to_string(),
+        },
+    )
+    .await?;
+
+    docs.write(
+        "async-rust",
+        Document {
+                text: "Async Rust empowers developers to write highly performant, scalable, and responsive applications.".to_string(),
+                source: "docs.md".to_string(),
+            },
+    )
+    .await?;
+
+    // read data:
+    if let Some(value) = docs.read("rust-book").await? {
+        let Document { source, text } = value;
+        println!("{source} — {text}");
+    }
+
+    // remove data:
+    docs.remove("async-rust").await?;
+    let result = docs.read::<_, Document>("async-rust").await?;
+    assert!(result.is_none());
+
+    // force flush cache from memory to disk:
+    docs.flush().await?;
+
+    // remove table:
+    db.remove_table("documents").await?;
 
     Ok(())
 }

@@ -1,6 +1,4 @@
-pub mod record;
-pub use record::Record;
-
+use super::RagRecord;
 use crate::prelude::*;
 
 use arrow_array::{Float32Array, RecordBatch, StringArray, UInt64Array};
@@ -8,45 +6,38 @@ use arrow_schema::{DataType, Field, Schema};
 use lancedb::{
     Connection,
     database::CreateTableMode,
+    index,
     query::{ExecutableQuery, QueryBase},
 };
+use serde::de::DeserializeOwned;
 
-/// The embeddings database
+/// The RAG database table (LanceDB)
 #[derive(Clone)]
-pub struct Context {
+pub struct RagTable {
     connection: Arc<Connection>,
+    name: String,
 }
 
-impl Context {
-    /// Connects to the RAG database
-    pub async fn connect(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref();
-
-        // create a directory if it doesn't exist:
-        if !path.exists() {
-            tokio::fs::create_dir_all(&path).await?;
+impl RagTable {
+    /// Creates a new table instance
+    pub(super) fn new(connection: Arc<Connection>, name: impl Into<String>) -> Self {
+        Self {
+            connection,
+            name: name.into(),
         }
-
-        let uri = path.to_string_lossy().to_string();
-        let conn = lancedb::connect(&uri).execute().await?;
-
-        Ok(Self {
-            connection: arc!(conn),
-        })
     }
 
-    /// Searches and reads a similar data
+    /// Reads a similar data by embeddings vector
     pub async fn read<T>(
         &self,
-        table_name: &str,
         vector: Vec<f32>,
         limit: usize,
         coef: f32,
-    ) -> Result<Option<Vec<Record<T>>>>
+    ) -> Result<Option<Vec<RagRecord<T>>>>
     where
-        T: serde::de::DeserializeOwned,
+        T: DeserializeOwned,
     {
-        let table = match self.connection.open_table(table_name).execute().await {
+        let table = match self.connection.open_table(&self.name).execute().await {
             Ok(t) => t,
             Err(_) => return Ok(None),
         };
@@ -98,7 +89,7 @@ impl Context {
                 let json_str = data_col.value(i);
                 let data: T = json::from_str(json_str)?;
 
-                results.push(Record { id, data });
+                results.push(RagRecord { id, data });
             }
         }
 
@@ -110,13 +101,13 @@ impl Context {
     }
 
     /// Writes any serializable data to the table
-    pub async fn write<T>(&self, table_name: &str, vector: Vec<f32>, data: T) -> Result<()>
+    pub async fn write<T>(&self, vector: Vec<f32>, data: T) -> Result<()>
     where
         T: serde::Serialize,
     {
         let vector_len = vector.len();
 
-        // 1. Generating unique id:
+        // generating unique id:
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -125,7 +116,7 @@ impl Context {
         let rand_part = (rand::random::<u32>() & 0x3F_FFFF) as u64;
         let id = (now_ms << 22) | rand_part;
 
-        // 2. Preparing arrow-arrays:
+        // preparing arrow-arrays:
         let id_array = Arc::new(UInt64Array::from(vec![id]));
 
         let float_array = Arc::new(Float32Array::from(vector));
@@ -140,7 +131,7 @@ impl Context {
         let json_string = serde_json::to_string(&data)?;
         let data_array = Arc::new(StringArray::from(vec![json_string]));
 
-        // 3. Describing the scheme:
+        // describing the scheme:
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::UInt64, false),
             Field::new(
@@ -154,7 +145,7 @@ impl Context {
             Field::new("data", DataType::Utf8, false),
         ]));
 
-        // 4. Building the record batch:
+        // building the record batch:
         let batch = RecordBatch::try_new(
             schema,
             vec![
@@ -166,14 +157,14 @@ impl Context {
 
         let batches = vec![batch];
 
-        // 5. Writing to database:
-        match self.connection.open_table(table_name).execute().await {
+        // writing to table:
+        match self.connection.open_table(&self.name).execute().await {
             Ok(table) => {
                 table.add(batches).execute().await?;
             }
             Err(_) => {
                 self.connection
-                    .create_table(table_name, batches)
+                    .create_table(&self.name, batches)
                     .mode(CreateTableMode::Create)
                     .execute()
                     .await?;
@@ -184,11 +175,7 @@ impl Context {
     }
 
     /// Writes a batch of serializable data
-    pub async fn write_batch<T>(
-        &self,
-        table_name: &str,
-        batch_data: Vec<(Vec<f32>, T)>,
-    ) -> Result<()>
+    pub async fn write_batch<T>(&self, batch_data: Vec<(Vec<f32>, T)>) -> Result<()>
     where
         T: serde::Serialize,
     {
@@ -199,7 +186,7 @@ impl Context {
         let batch_size = batch_data.len();
         let vector_len = batch_data[0].0.len();
 
-        // 1. Generating unique id:
+        // generate unique ids:
         let mut ids = Vec::with_capacity(batch_size);
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -213,7 +200,7 @@ impl Context {
         }
         let id_array = Arc::new(UInt64Array::from(ids));
 
-        // 2. Allocating memory for vectors:
+        // allocating memory for vectors:
         let mut flat_vectors = Vec::with_capacity(batch_size * vector_len);
         let mut json_strings = Vec::with_capacity(batch_size);
 
@@ -225,7 +212,7 @@ impl Context {
             json_strings.push(json::to_string(&data)?);
         }
 
-        // 3. Creating arrow-arrays:
+        // creating arrow-arrays:
         let float_array = Arc::new(Float32Array::from(flat_vectors));
         let item_field = Arc::new(Field::new("item", DataType::Float32, true));
         let vector_array = Arc::new(arrow_array::FixedSizeListArray::try_new(
@@ -237,7 +224,7 @@ impl Context {
 
         let data_array = Arc::new(StringArray::from(json_strings));
 
-        // 4. Describing the scheme:
+        // describing the scheme:
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::UInt64, false),
             Field::new(
@@ -251,7 +238,7 @@ impl Context {
             Field::new("data", DataType::Utf8, false),
         ]));
 
-        // 5. Building the record batch:
+        // building the record batch:
         let record_batch = RecordBatch::try_new(
             schema,
             vec![
@@ -263,14 +250,14 @@ impl Context {
 
         let batches = vec![record_batch];
 
-        // 6. Writing to database:
-        match self.connection.open_table(table_name).execute().await {
+        // writing to table:
+        match self.connection.open_table(&self.name).execute().await {
             Ok(table) => {
                 table.add(batches).execute().await?;
             }
             Err(_) => {
                 self.connection
-                    .create_table(table_name, batches)
+                    .create_table(&self.name, batches)
                     .mode(CreateTableMode::Create)
                     .execute()
                     .await?;
@@ -280,26 +267,21 @@ impl Context {
         Ok(())
     }
 
-    /// Removes a record by ID
-    pub async fn remove(&self, table_name: &str, id: u64) -> Result<()> {
-        if let Ok(table) = self.connection.open_table(table_name).execute().await {
-            let predicate = format!("id = {}", id);
+    /// Removes a table record by ID
+    pub async fn remove(&self, id: u64) -> Result<()> {
+        if let Ok(table) = self.connection.open_table(&self.name).execute().await {
+            let predicate = str!("id = {}", id);
             table.delete(&predicate).await?;
         }
 
         Ok(())
     }
 
-    // Optimizes the table index
-    pub async fn optimize_index(
-        &self,
-        table_name: &str,
-        partitions: u32,
-        subvectors: u32,
-    ) -> Result<()> {
-        if let Ok(table) = self.connection.open_table(table_name).execute().await {
-            let index_config = lancedb::index::Index::IvfPq(
-                lancedb::index::vector::IvfPqIndexBuilder::default()
+    // Optimizes the table indexing
+    pub async fn index(&self, partitions: u32, subvectors: u32) -> Result<()> {
+        if let Ok(table) = self.connection.open_table(&self.name).execute().await {
+            let index_config = index::Index::IvfPq(
+                index::vector::IvfPqIndexBuilder::default()
                     .num_partitions(partitions)
                     .num_sub_vectors(subvectors),
             );

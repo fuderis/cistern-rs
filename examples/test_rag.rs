@@ -1,5 +1,5 @@
 #![cfg(feature = "rag")]
-use cistern::{Cistern, Rag, RagRecord};
+use cistern::{Cistern, Rag, RagRecord, generate_id};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -16,6 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
 
     // write data:
     docs.write(
+        generate_id(),
         vec![0.1, 0.2, 0.3, 0.4],
         Document {
             text: "Rust is a programming language that ensures memory safety.".to_string(),
@@ -27,6 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     // write batch data:
     docs.write_batch(vec![
         (
+            generate_id(),
             vec![0.2, 0.7, 0.3, 0.5],
             Document {
                 text: "Async Rust empowers developers to write highly performant, scalable, and responsive applications.".to_string(),
@@ -34,6 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
             },
         ),
         (
+            generate_id(),
             vec![0.5, 0.6, 0.7, 0.8],
             Document {
                 text: "LanceDB uses the Lance format for fast vector search.".to_string(),
@@ -46,10 +49,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     // read data:
     if let Some(records) = docs.read(vec![0.1, 0.2, 0.25, 0.35], 10, 0.85).await? {
         for RagRecord { id, data } in records {
+            // remove record:
+            docs.remove(id).await?;
+
             let Document { source, text } = data;
             println!("[{id}] {source} — {text}");
         }
     }
+
+    assert!(
+        docs.read::<Document>(vec![0.1, 0.2, 0.25, 0.35], 10, 0.85)
+            .await?
+            .is_none()
+    );
 
     // optimize table indexing:
     docs.index(256, 16).await?;

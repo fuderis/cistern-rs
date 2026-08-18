@@ -44,7 +44,7 @@ impl RagTable {
 
         let max_distance = (1.0f32 - coef).max(0.0f32);
 
-        // vector search using LanceDB tools:
+        // vector search using LanceDB tools
         let mut stream = table
             .query()
             .nearest_to(vector.as_slice())?
@@ -57,7 +57,7 @@ impl RagTable {
         while let Some(batch_result) = stream.next().await {
             let batch = batch_result?;
 
-            // safely remove columns by name:
+            // safely remove columns by name
             let id_col = batch
                 .column_by_name("id")
                 .ok_or_else(|| Error::ExpectedColumn("id"))?
@@ -78,7 +78,7 @@ impl RagTable {
                 .flatten();
 
             for i in 0..batch.num_rows() {
-                // filtering by distance (similarity coefficient):
+                // filtering by distance (similarity coefficient)
                 if let Some(dist_arr) = distance_col {
                     if dist_arr.value(i) > max_distance {
                         continue;
@@ -100,23 +100,61 @@ impl RagTable {
         Ok(Some(results))
     }
 
-    /// Writes any serializable data to the table
-    pub async fn write<T>(&self, vector: Vec<f32>, data: T) -> Result<()>
+    /// Reads all records from the table without vector distance filtering
+    pub async fn read_all<T>(&self) -> Result<Option<Vec<RagRecord<T>>>>
+    where
+        T: DeserializeOwned,
+    {
+        let table = match self.connection.open_table(&self.name).execute().await {
+            Ok(t) => t,
+            Err(_) => return Ok(None),
+        };
+
+        // perform a full scan of the entire table
+        let mut stream = table.query().execute().await?;
+        let mut results = Vec::new();
+
+        while let Some(batch_result) = stream.next().await {
+            let batch = batch_result?;
+
+            let id_col = batch
+                .column_by_name("id")
+                .ok_or_else(|| Error::ExpectedColumn("id"))?
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .ok_or_else(|| Error::FailedDowncast("id", "UInt64Array"))?;
+
+            let data_col = batch
+                .column_by_name("data")
+                .ok_or_else(|| Error::ExpectedColumn("data"))?
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| Error::FailedDowncast("data", "StringArray"))?;
+
+            for i in 0..batch.num_rows() {
+                let id = id_col.value(i);
+                let json_str = data_col.value(i);
+                let data: T = json::from_str(json_str)?;
+
+                results.push(RagRecord { id, data });
+            }
+        }
+
+        if results.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(results))
+    }
+
+    /// Writes any serializable data to the table with explicitly passed ID
+    pub async fn write<T>(&self, id: u64, vector: Vec<f32>, data: T) -> Result<()>
     where
         T: serde::Serialize,
     {
         let vector_len = vector.len();
 
-        // generating unique id:
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-
-        let rand_part = (rand::random::<u32>() & 0x3F_FFFF) as u64;
-        let id = (now_ms << 22) | rand_part;
-
-        // preparing arrow-arrays:
+        // preparing arrow-arrays
         let id_array = Arc::new(UInt64Array::from(vec![id]));
 
         let float_array = Arc::new(Float32Array::from(vector));
@@ -131,7 +169,7 @@ impl RagTable {
         let json_string = serde_json::to_string(&data)?;
         let data_array = Arc::new(StringArray::from(vec![json_string]));
 
-        // describing the scheme:
+        // describing the scheme
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::UInt64, false),
             Field::new(
@@ -145,7 +183,7 @@ impl RagTable {
             Field::new("data", DataType::Utf8, false),
         ]));
 
-        // building the record batch:
+        // building the record batch
         let batch = RecordBatch::try_new(
             schema,
             vec![
@@ -157,7 +195,7 @@ impl RagTable {
 
         let batches = vec![batch];
 
-        // writing to table:
+        // writing to table
         match self.connection.open_table(&self.name).execute().await {
             Ok(table) => {
                 table.add(batches).execute().await?;
@@ -174,8 +212,8 @@ impl RagTable {
         Ok(())
     }
 
-    /// Writes a batch of serializable data
-    pub async fn write_batch<T>(&self, batch_data: Vec<(Vec<f32>, T)>) -> Result<()>
+    /// Writes a batch of serializable data with explicit IDs tuple (u64, Vec<f32>, T)
+    pub async fn write_batch<T>(&self, batch_data: Vec<(u64, Vec<f32>, T)>) -> Result<()>
     where
         T: serde::Serialize,
     {
@@ -184,35 +222,23 @@ impl RagTable {
         }
 
         let batch_size = batch_data.len();
-        let vector_len = batch_data[0].0.len();
+        let vector_len = batch_data[0].1.len();
 
-        // generate unique ids:
         let mut ids = Vec::with_capacity(batch_size);
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-
-        for i in 0..batch_size {
-            let rand_part = (rand::random::<u32>() & 0x3F_FFFF) as u64;
-            let id = ((now_ms + i as u64) << 22) | rand_part;
-            ids.push(id);
-        }
-        let id_array = Arc::new(UInt64Array::from(ids));
-
-        // allocating memory for vectors:
         let mut flat_vectors = Vec::with_capacity(batch_size * vector_len);
         let mut json_strings = Vec::with_capacity(batch_size);
 
-        for (mut vector, data) in batch_data {
+        for (id, mut vector, data) in batch_data {
             if vector.len() != vector_len {
                 return Err(Error::InvalidBatchLength.into());
             }
+            ids.push(id);
             flat_vectors.append(&mut vector);
             json_strings.push(json::to_string(&data)?);
         }
 
-        // creating arrow-arrays:
+        // creating arrow-arrays
+        let id_array = Arc::new(UInt64Array::from(ids));
         let float_array = Arc::new(Float32Array::from(flat_vectors));
         let item_field = Arc::new(Field::new("item", DataType::Float32, true));
         let vector_array = Arc::new(arrow_array::FixedSizeListArray::try_new(
@@ -224,7 +250,7 @@ impl RagTable {
 
         let data_array = Arc::new(StringArray::from(json_strings));
 
-        // describing the scheme:
+        // describing the scheme
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::UInt64, false),
             Field::new(
@@ -238,7 +264,7 @@ impl RagTable {
             Field::new("data", DataType::Utf8, false),
         ]));
 
-        // building the record batch:
+        // building the record batch
         let record_batch = RecordBatch::try_new(
             schema,
             vec![
@@ -250,7 +276,7 @@ impl RagTable {
 
         let batches = vec![record_batch];
 
-        // writing to table:
+        // writing to table
         match self.connection.open_table(&self.name).execute().await {
             Ok(table) => {
                 table.add(batches).execute().await?;
@@ -272,6 +298,15 @@ impl RagTable {
         if let Ok(table) = self.connection.open_table(&self.name).execute().await {
             let predicate = str!("id = {}", id);
             table.delete(&predicate).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Completely clears all records in the table
+    pub async fn clear(&self) -> Result<()> {
+        if let Ok(table) = self.connection.open_table(&self.name).execute().await {
+            table.delete("1 = 1").await?;
         }
 
         Ok(())

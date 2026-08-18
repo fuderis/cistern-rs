@@ -33,6 +33,29 @@ impl KvTable {
         .await?
     }
 
+    /// Reads all records from the table
+    pub async fn read_all<K, V>(&self) -> Result<Vec<(K, V)>>
+    where
+        K: DeserializeOwned + Send + 'static,
+        V: DeserializeOwned + Send + 'static,
+    {
+        let tree = self.tree.clone();
+
+        tokio::task::spawn_blocking(move || -> Result<Vec<(K, V)>> {
+            let mut items = Vec::new();
+
+            for res in tree.iter() {
+                let (key_bytes, value_bytes) = res?;
+                let key: K = serde_json::from_slice(&key_bytes)?;
+                let value: V = serde_json::from_slice(&value_bytes)?;
+                items.push((key, value));
+            }
+
+            Ok(items)
+        })
+        .await?
+    }
+
     /// Writes any serializable data to the table by any serializable key
     pub async fn write<K, V>(&self, key: K, value: V) -> Result<()>
     where
@@ -73,6 +96,17 @@ impl KvTable {
             let key_bytes = serde_json::to_vec(&key)?;
 
             tree.remove(key_bytes)?;
+            Ok(())
+        })
+        .await?
+    }
+
+    /// Completely clears all records in the table
+    pub async fn clear(&self) -> Result<()> {
+        let tree = self.tree.clone();
+
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            tree.clear()?;
             Ok(())
         })
         .await?

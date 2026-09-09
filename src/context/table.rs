@@ -1,4 +1,4 @@
-use super::RagRecord;
+use super::Record;
 use crate::prelude::*;
 
 use arrow_array::{Float32Array, RecordBatch, StringArray, UInt64Array};
@@ -13,12 +13,12 @@ use serde::de::DeserializeOwned;
 
 /// The RAG database table (LanceDB)
 #[derive(Clone)]
-pub struct RagTable {
+pub struct Table {
     connection: Arc<Connection>,
     name: String,
 }
 
-impl RagTable {
+impl Table {
     /// Creates a new table instance
     pub(super) fn new(connection: Arc<Connection>, name: impl Into<String>) -> Self {
         Self {
@@ -31,9 +31,9 @@ impl RagTable {
     pub async fn read<T>(
         &self,
         vector: Vec<f32>,
-        limit: usize,
+        limit: Option<usize>,
         coef: f32,
-    ) -> Result<Option<Vec<RagRecord<T>>>>
+    ) -> Result<Option<Vec<Record<T>>>>
     where
         T: DeserializeOwned,
     {
@@ -45,13 +45,13 @@ impl RagTable {
         let max_distance = (1.0f32 - coef).max(0.0f32);
 
         // vector search using LanceDB tools
-        let mut stream = table
-            .query()
-            .nearest_to(vector.as_slice())?
-            .limit(limit)
-            .execute()
-            .await?;
+        let mut query = table.query().nearest_to(vector.as_slice())?;
 
+        if let Some(limit) = limit {
+            query = query.limit(limit);
+        }
+
+        let mut stream = query.execute().await?;
         let mut results = Vec::new();
 
         while let Some(batch_result) = stream.next().await {
@@ -89,7 +89,7 @@ impl RagTable {
                 let json_str = data_col.value(i);
                 let data: T = json::from_str(json_str)?;
 
-                results.push(RagRecord { id, data });
+                results.push(Record { id, data });
             }
         }
 
@@ -101,7 +101,7 @@ impl RagTable {
     }
 
     /// Reads all records from the table without vector distance filtering
-    pub async fn read_all<T>(&self) -> Result<Option<Vec<RagRecord<T>>>>
+    pub async fn read_all<T>(&self) -> Result<Option<Vec<Record<T>>>>
     where
         T: DeserializeOwned,
     {
@@ -136,7 +136,7 @@ impl RagTable {
                 let json_str = data_col.value(i);
                 let data: T = json::from_str(json_str)?;
 
-                results.push(RagRecord { id, data });
+                results.push(Record { id, data });
             }
         }
 

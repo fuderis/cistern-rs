@@ -1,9 +1,9 @@
 [package]
 name = "cistern"
 description = "A high-level, asynchronous storage abstraction layer built for AI-driven applications, LLM orchestrators, and local agents."
-keywords = ["rag", "frawework", "ai", "embeddings"]
+keywords = ["rag", "embeddings", "key-value", "db", "database"]
 categories = ["development-tools", "rust-patterns"]
-version = "0.3.0"
+version = "0.4.0"
 license = "MIT"
 authors = ["Bulat Sh. <synapdrake@ya.ru>"]
 repository = "https://github.com/fuderis/cistern-rs"
@@ -26,6 +26,6 @@ serde_arrow = { version = "0.14.0", features = ["arrow-57"], optional = true }
 sled = { version = "0.34.7", optional = true }
 
 [features]
-full = ["rag", "kv"]
-rag = ["dep:lancedb","dep:arrow-array","dep:arrow-schema","dep:serde_arrow"]
-kv = ["dep:sled"]
+full = ["context", "storage"]
+context = ["dep:lancedb","dep:arrow-array","dep:arrow-schema","dep:serde_arrow"]
+storage = ["dep:sled"]

@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 pub use std::result::Result as StdResult;
-pub type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
+pub type DynError = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = StdResult<T, DynError>;
 
 pub use crate::error::Error;

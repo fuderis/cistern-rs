@@ -1,5 +1,5 @@
-#![cfg(feature = "kv")]
-use cistern::{Cistern, Kv};
+#![cfg(feature = "storage")]
+use cistern::Storage;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -11,7 +11,7 @@ struct Document {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     // connect to db:
-    let db = Cistern::<Kv>::connect(".database").await?;
+    let db = Storage::connect(".database").await?;
     let docs = db.open_table("documents").await?;
 
     // write data:

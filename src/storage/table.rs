@@ -3,11 +3,11 @@ use serde::de::DeserializeOwned;
 
 /// The key-value database table (Sled)
 #[derive(Clone)]
-pub struct KvTable {
+pub struct Table {
     tree: sled::Tree,
 }
 
-impl KvTable {
+impl Table {
     /// Creates a new table instance
     pub(crate) fn new(tree: sled::Tree) -> Self {
         Self { tree }

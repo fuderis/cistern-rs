@@ -1,5 +1,5 @@
-#![cfg(feature = "rag")]
-use cistern::{Cistern, Rag, RagRecord, generate_id};
+#![cfg(feature = "context")]
+use cistern::{Context, ContextRecord, generate_id};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -11,7 +11,7 @@ struct Document {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     // connect to db:
-    let db = Cistern::<Rag>::connect(".database").await?;
+    let db = Context::connect(".database").await?;
     let docs = db.open_table("documents").await?;
 
     // write data:
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
 
     // read data:
     if let Some(records) = docs.read(vec![0.1, 0.2, 0.25, 0.35], 10, 0.85).await? {
-        for RagRecord { id, data } in records {
+        for ContextRecord { id, data } in records {
             // remove record:
             docs.remove(id).await?;
 

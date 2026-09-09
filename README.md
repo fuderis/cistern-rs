@@ -17,12 +17,11 @@ Cistern leverages standard Rust types and `serde` serialization to expose a clea
 
 ## Features:
 
-* **Modular Backend Architecture:** Choose between heavy semantic processing (`Rag`) or high-performance
-  state management (`Kv`) via feature flags, completely isolating compile-time dependencies.
+* **Modular Backend Architecture:** Choose between heavy semantic processing (`Context`) or high-performance
+  state management (`Storage`) via feature flags, completely isolating compile-time dependencies.
 * **Clean Type Abstraction:** No manual Arrow `RecordBatch` construction or raw key-to-byte serialization.
   Work natively with your own Rust structures.
-* **Thread-Safe & Cheaply Clonable:** The core `Cistern<B>` engine handles internal connection pooling.
-  It is fully `Send + Sync` and can be easily shared across `tokio` threads or web frameworks like `Axum`.
+* **Thread-Safe & Cheaply Clonable:** Fully `Send + Sync` and can be easily shared across `tokio` threads or web frameworks like `Axum`.
 * **Zero Cross-Contamination:** Built around clean Rust trait boundaries. If you only use the KV engine,
   heavy dependencies like LanceDB and Apache Arrow won't even compile into your binary.
 
@@ -30,12 +29,12 @@ Cistern leverages standard Rust types and `serde` serialization to expose a clea
 
 * To use only Key-Value (Sled)
 ```bash
-cargo add cistern --features kv
+cargo add cistern --features storage
 ```
 
 * To use Vector Search only (LanceDB)
 ```bash
-cargo add cistern --features rag
+cargo add cistern --features context
 ```
 
 * Or all of them together
@@ -45,13 +44,13 @@ cargo add cistern --features full
 
 ## Examples:
 
-### Rag (LanceDB) [feature `rag`]:
+### RAG Context (LanceDB) [feature `context`]:
 
 **Powered by LanceDB** and **Apache Arrow**. Perfect for semantic knowledge bases, long-term agent memory, and chunk retrieval.
 Features automated distributed 64-bit ID padding and integrated IVF-PQ index tuning.
 
 ```rust
-use cistern::{Cistern, Rag, RagRecord, generate_id};
+use cistern::{Context, ContextRecord, gen_id};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -63,7 +62,7 @@ struct Document {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     // connect to db
-    let db = Cistern::<Rag>::connect(".database").await?;
+    let db = Context::connect(".database").await?;
     let docs = db.open_table("documents").await?;
 
     // write data
@@ -99,8 +98,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     .await?;
 
     // read data
-    if let Some(records) = docs.read(vec![0.1, 0.2, 0.25, 0.35], 10, 0.85).await? {
-        for RagRecord { id, data } in records {
+    if let Some(records) = docs.read(vec![0.1, 0.2, 0.25, 0.35], None, 0.85).await? {
+        for ContextRecord { id, data } in records {
             // remove record
             docs.remove(id).await?;
 
@@ -110,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     }
 
     assert!(
-        docs.read::<Document>(vec![0.1, 0.2, 0.25, 0.35], 10, 0.85)
+        docs.read::<Document>(vec![0.1, 0.2, 0.25, 0.35], None, 0.85)
             .await?
             .is_none()
     );
@@ -125,13 +124,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
 }
 ```
 
-### Key-Value (SledDB) [feature `kv`]:
+### Key-Value Storage (SledDB) [feature `storage`]:
 
 **Powered by Sled**. Built for uncompromising speed and ultra-low latency. Engineered specifically for real-time AI
 session tracking, sub-millisecond context swapping and internal tool caching.
 
 ```rust
-use cistern::{Cistern, Kv};
+use cistern::Storage;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -143,7 +142,7 @@ struct Document {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
     // connect to db
-    let db = Cistern::<Kv>::connect(".database").await?;
+    let db = Storage::connect(".database").await?;
     let docs = db.open_table("documents").await?;
 
     // write data

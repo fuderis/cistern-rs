@@ -2,18 +2,15 @@
 pub mod error;
 pub mod prelude;
 
-pub mod cistern;
-pub use cistern::{Backend, Cistern};
+#[cfg(feature = "context")]
+pub mod context;
+#[cfg(feature = "context")]
+pub use context::{Context, Record as ContextRecord, Table as ContextTable};
 
-#[cfg(feature = "rag")]
-pub mod rag;
-#[cfg(feature = "rag")]
-pub use rag::{Rag, RagRecord, RagTable};
-
-#[cfg(feature = "kv")]
-pub mod kv;
-#[cfg(feature = "kv")]
-pub use kv::{Kv, KvTable};
+#[cfg(feature = "storage")]
+pub mod storage;
+#[cfg(feature = "storage")]
+pub use storage::{Storage, Table as StorageTable};
 
 use std::{
     sync::atomic::{AtomicU64, Ordering},
@@ -22,9 +19,8 @@ use std::{
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Generates a unique u64 based on the current time and an atomic counter.
-/// Guarantees uniqueness and monotonicity even with frequent calls in the same thread/asynchronous environment.
-pub fn generate_id() -> u64 {
+/// Generates unique u64 (based on current time and atomic counter).
+pub fn gen_id() -> u64 {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
@@ -32,6 +28,6 @@ pub fn generate_id() -> u64 {
 
     let count = COUNTER.fetch_add(1, Ordering::Relaxed) % 1000;
 
-    // shift the milliseconds to free up 10 bits at the bottom for a local counter (up to 1000 values/ms)
+    // shift ms to free up 10 bits at the bottom for a local counter (up to 1000 values/ms)
     (millis << 10) | count
 }

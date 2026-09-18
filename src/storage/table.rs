@@ -1,19 +1,19 @@
 use crate::prelude::*;
 use serde::de::DeserializeOwned;
 
-/// The key-value database table (Sled)
+/// Key-value database table (Sled).
 #[derive(Clone)]
 pub struct Table {
     tree: sled::Tree,
 }
 
 impl Table {
-    /// Creates a new table instance
+    /// Creates new table instance.
     pub(crate) fn new(tree: sled::Tree) -> Self {
         Self { tree }
     }
 
-    /// Reads a value by any serializable key
+    /// Reads value by any serializable key.
     pub async fn read<K, V>(&self, key: K) -> Result<Option<V>>
     where
         K: Serialize + Send + 'static,
@@ -33,7 +33,7 @@ impl Table {
         .await?
     }
 
-    /// Reads all records from the table
+    /// Reads all records from the table.
     pub async fn read_all<K, V>(&self) -> Result<Vec<(K, V)>>
     where
         K: DeserializeOwned + Send + 'static,
@@ -56,7 +56,7 @@ impl Table {
         .await?
     }
 
-    /// Writes any serializable data to the table by any serializable key
+    /// Writes any serializable data to the table.
     pub async fn write<K, V>(&self, key: K, value: V) -> Result<()>
     where
         K: Serialize + Send + 'static,
@@ -74,7 +74,7 @@ impl Table {
         .await?
     }
 
-    /// Forcibly flushes all cached data from RAM to the physical disk
+    /// Flushes all cached data from RAM to the disk.
     pub async fn flush(&self) -> Result<()> {
         let tree = self.tree.clone();
 
@@ -85,7 +85,7 @@ impl Table {
         .await?
     }
 
-    /// Removes a table record by any serializable key
+    /// Removes table record by any serializable key.
     pub async fn remove<K>(&self, key: K) -> Result<()>
     where
         K: Serialize + Send + 'static,
@@ -101,7 +101,7 @@ impl Table {
         .await?
     }
 
-    /// Completely clears all records in the table
+    /// Clears all records in the table.
     pub async fn clear(&self) -> Result<()> {
         let tree = self.tree.clone();
 

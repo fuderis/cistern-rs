@@ -11,7 +11,7 @@ use lancedb::{
 };
 use serde::de::DeserializeOwned;
 
-/// The RAG database table (LanceDB)
+/// RAG database table (LanceDB).
 #[derive(Clone)]
 pub struct Table {
     connection: Arc<Connection>,
@@ -19,7 +19,7 @@ pub struct Table {
 }
 
 impl Table {
-    /// Creates a new table instance
+    /// Creates new table instance.
     pub(super) fn new(connection: Arc<Connection>, name: impl Into<String>) -> Self {
         Self {
             connection,
@@ -27,7 +27,7 @@ impl Table {
         }
     }
 
-    /// Reads a similar data by embeddings vector
+    /// Reads similar data by embeddings vector.
     pub async fn read<T>(
         &self,
         vector: Vec<f32>,
@@ -100,7 +100,7 @@ impl Table {
         Ok(Some(results))
     }
 
-    /// Reads all records from the table without vector distance filtering
+    /// Reads all records from the table.
     pub async fn read_all<T>(&self) -> Result<Option<Vec<Record<T>>>>
     where
         T: DeserializeOwned,
@@ -147,7 +147,7 @@ impl Table {
         Ok(Some(results))
     }
 
-    /// Writes any serializable data to the table with explicitly passed ID
+    /// Writes record to the table.
     pub async fn write<T>(&self, id: u64, vector: Vec<f32>, data: T) -> Result<()>
     where
         T: serde::Serialize,
@@ -212,7 +212,7 @@ impl Table {
         Ok(())
     }
 
-    /// Writes a batch of serializable data with explicit IDs tuple (u64, Vec<f32>, T)
+    /// Writes batch of records (u64, Vec<f32>, T).
     pub async fn write_batch<T>(&self, batch_data: Vec<(u64, Vec<f32>, T)>) -> Result<()>
     where
         T: serde::Serialize,
@@ -293,7 +293,7 @@ impl Table {
         Ok(())
     }
 
-    /// Removes a table record by ID
+    /// Removes record by ID.
     pub async fn remove(&self, id: u64) -> Result<()> {
         if let Ok(table) = self.connection.open_table(&self.name).execute().await {
             let predicate = str!("id = {}", id);
@@ -303,7 +303,7 @@ impl Table {
         Ok(())
     }
 
-    /// Completely clears all records in the table
+    /// Clears all records in the table.
     pub async fn clear(&self) -> Result<()> {
         if let Ok(table) = self.connection.open_table(&self.name).execute().await {
             table.delete("1 = 1").await?;
@@ -312,7 +312,7 @@ impl Table {
         Ok(())
     }
 
-    // Optimizes the table indexing
+    // Optimizes table indexing.
     pub async fn index(&self, partitions: u32, subvectors: u32) -> Result<()> {
         if let Ok(table) = self.connection.open_table(&self.name).execute().await {
             let index_config = index::Index::IvfPq(

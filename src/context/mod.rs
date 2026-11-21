@@ -1,5 +1,8 @@
 //! RAG database module.
 
+pub mod error;
+pub use error::Error as ContextError;
+
 pub mod record;
 pub use record::Record;
 
@@ -12,6 +15,7 @@ pub use lancedb;
 pub use serde_arrow;
 
 use crate::prelude::*;
+use atoman::fs;
 
 /// RAG context database (based on LanceDB).
 #[derive(Clone)]
@@ -22,10 +26,13 @@ pub struct Context {
 
 impl Context {
     /// Connects to database.
-    pub async fn connect(dir: impl Into<PathBuf>) -> Result<Self> {
+    pub async fn connect(dir: impl Into<PathBuf>) -> Result<Self, Error> {
         let dir = dir.into();
         let uri = dir.to_string_lossy().to_string();
-        let conn = lancedb::connect(&uri).execute().await?;
+        let conn = lancedb::connect(&uri)
+            .execute()
+            .await
+            .map_err(ContextError::from)?;
 
         Ok(Self {
             conn: Arc::new(conn),
@@ -34,15 +41,15 @@ impl Context {
     }
 
     /// Opens database table.
-    pub async fn open_table(&self, name: &str) -> Result<Table> {
+    pub async fn open_table(&self, name: &str) -> Result<Table, Error> {
         Ok(Table::new(self.conn.clone(), name))
     }
 
     /// Removes database table.
-    pub async fn remove_table(&self, name: &str) -> Result<()> {
-        let table_path = self.dir.join(str!("{}.lance", name));
+    pub async fn remove_table(&self, name: &str) -> Result<(), Error> {
+        let table_path = self.dir.join(format!("{}.lance", name));
         if table_path.exists() {
-            tokio::fs::remove_dir_all(&table_path).await?;
+            fs::remove_dir_all(&table_path).await?;
         }
 
         Ok(())

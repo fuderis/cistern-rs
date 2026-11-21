@@ -1,4 +1,6 @@
+use super::StorageError;
 use crate::prelude::*;
+
 use serde::de::DeserializeOwned;
 
 /// Key-value database table (Sled).
@@ -14,17 +16,17 @@ impl Table {
     }
 
     /// Reads value by any serializable key.
-    pub async fn read<K, V>(&self, key: K) -> Result<Option<V>>
+    pub async fn read<K, V>(&self, key: K) -> Result<Option<V>, Error>
     where
         K: Serialize + Send + 'static,
         V: DeserializeOwned + Send + 'static,
     {
         let tree = self.tree.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<Option<V>> {
+        atoman::spawn_blocking(move || -> Result<Option<V>, Error> {
             let key_bytes = serde_json::to_vec(&key)?;
 
-            if let Some(bytes) = tree.get(key_bytes)? {
+            if let Some(bytes) = tree.get(key_bytes).map_err(StorageError::from)? {
                 let value = serde_json::from_slice(&bytes)?;
                 return Ok(Some(value));
             }
@@ -34,18 +36,18 @@ impl Table {
     }
 
     /// Reads all records from the table.
-    pub async fn read_all<K, V>(&self) -> Result<Vec<(K, V)>>
+    pub async fn read_all<K, V>(&self) -> Result<Vec<(K, V)>, Error>
     where
         K: DeserializeOwned + Send + 'static,
         V: DeserializeOwned + Send + 'static,
     {
         let tree = self.tree.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<Vec<(K, V)>> {
+        atoman::spawn_blocking(move || -> Result<Vec<(K, V)>, Error> {
             let mut items = Vec::new();
 
             for res in tree.iter() {
-                let (key_bytes, value_bytes) = res?;
+                let (key_bytes, value_bytes) = res.map_err(StorageError::from)?;
                 let key: K = serde_json::from_slice(&key_bytes)?;
                 let value: V = serde_json::from_slice(&value_bytes)?;
                 items.push((key, value));
@@ -57,56 +59,57 @@ impl Table {
     }
 
     /// Writes any serializable data to the table.
-    pub async fn write<K, V>(&self, key: K, value: V) -> Result<()>
+    pub async fn write<K, V>(&self, key: K, value: V) -> Result<(), Error>
     where
         K: Serialize + Send + 'static,
         V: Serialize + Send + 'static,
     {
         let tree = self.tree.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        atoman::spawn_blocking(move || -> Result<(), Error> {
             let key_bytes = serde_json::to_vec(&key)?;
             let value_bytes = serde_json::to_vec(&value)?;
 
-            tree.insert(key_bytes, value_bytes)?;
+            tree.insert(key_bytes, value_bytes)
+                .map_err(StorageError::from)?;
             Ok(())
         })
         .await?
     }
 
     /// Flushes all cached data from RAM to the disk.
-    pub async fn flush(&self) -> Result<()> {
+    pub async fn flush(&self) -> Result<(), Error> {
         let tree = self.tree.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            tree.flush()?;
+        atoman::spawn_blocking(move || -> Result<(), Error> {
+            tree.flush().map_err(StorageError::from)?;
             Ok(())
         })
         .await?
     }
 
     /// Removes table record by any serializable key.
-    pub async fn remove<K>(&self, key: K) -> Result<()>
+    pub async fn remove<K>(&self, key: K) -> Result<(), Error>
     where
         K: Serialize + Send + 'static,
     {
         let tree = self.tree.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        atoman::spawn_blocking(move || -> Result<(), Error> {
             let key_bytes = serde_json::to_vec(&key)?;
 
-            tree.remove(key_bytes)?;
+            tree.remove(key_bytes).map_err(StorageError::from)?;
             Ok(())
         })
         .await?
     }
 
     /// Clears all records in the table.
-    pub async fn clear(&self) -> Result<()> {
+    pub async fn clear(&self) -> Result<(), Error> {
         let tree = self.tree.clone();
 
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            tree.clear()?;
+        atoman::spawn_blocking(move || -> Result<(), Error> {
+            tree.clear().map_err(StorageError::from)?;
             Ok(())
         })
         .await?

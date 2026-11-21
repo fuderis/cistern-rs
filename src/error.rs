@@ -1,14 +1,16 @@
 use macron::{Display, Error, From};
 
-/// The error
 #[derive(Debug, Display, Error, From)]
 pub enum Error {
-    #[display = "Expected '{0}' column (maybe table is broken)"]
-    ExpectedColumn(&'static str),
+    Io(std::io::Error),
 
-    #[display = "Failed to downcast '{0}' to {1}"]
-    FailedDowncast(&'static str, &'static str),
+    Json(Box<serde_json::Error>),
 
-    #[display = "All vectors in a batch must have the same length"]
-    InvalidBatchLength,
+    Join(atoman::task::JoinError),
+
+    #[cfg(feature = "context")]
+    Context(crate::context::error::Error),
+
+    #[cfg(feature = "storage")]
+    Storage(crate::storage::error::Error),
 }

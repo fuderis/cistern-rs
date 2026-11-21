@@ -1,4 +1,4 @@
-use super::Record;
+use super::{ContextError, Record};
 use crate::prelude::*;
 
 use arrow_array::{Float32Array, RecordBatch, StringArray, UInt64Array};
@@ -33,7 +33,7 @@ impl Table {
         vector: Vec<f32>,
         limit: Option<usize>,
         coef: f32,
-    ) -> Result<Option<Vec<Record<T>>>>
+    ) -> Result<Option<Vec<Record<T>>>, Error>
     where
         T: DeserializeOwned,
     {
@@ -45,32 +45,35 @@ impl Table {
         let max_distance = (1.0f32 - coef).max(0.0f32);
 
         // vector search using LanceDB tools
-        let mut query = table.query().nearest_to(vector.as_slice())?;
+        let mut query = table
+            .query()
+            .nearest_to(vector.as_slice())
+            .map_err(ContextError::from)?;
 
         if let Some(limit) = limit {
             query = query.limit(limit);
         }
 
-        let mut stream = query.execute().await?;
+        let mut stream = query.execute().await.map_err(ContextError::from)?;
         let mut results = Vec::new();
 
         while let Some(batch_result) = stream.next().await {
-            let batch = batch_result?;
+            let batch = batch_result.map_err(ContextError::from)?;
 
             // safely remove columns by name
             let id_col = batch
                 .column_by_name("id")
-                .ok_or_else(|| Error::ExpectedColumn("id"))?
+                .ok_or_else(|| ContextError::ExpectedColumn("id"))?
                 .as_any()
                 .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| Error::FailedDowncast("id", "UInt64Array"))?;
+                .ok_or_else(|| ContextError::FailedDowncast("id", "UInt64Array"))?;
 
             let data_col = batch
                 .column_by_name("data")
-                .ok_or_else(|| Error::ExpectedColumn("column"))?
+                .ok_or_else(|| ContextError::ExpectedColumn("column"))?
                 .as_any()
                 .downcast_ref::<StringArray>()
-                .ok_or_else(|| Error::FailedDowncast("data", "StringArray"))?;
+                .ok_or_else(|| ContextError::FailedDowncast("data", "StringArray"))?;
 
             let distance_col = batch
                 .column_by_name("_distance")
@@ -101,7 +104,7 @@ impl Table {
     }
 
     /// Reads all records from the table.
-    pub async fn read_all<T>(&self) -> Result<Option<Vec<Record<T>>>>
+    pub async fn read_all<T>(&self) -> Result<Option<Vec<Record<T>>>, Error>
     where
         T: DeserializeOwned,
     {
@@ -111,25 +114,25 @@ impl Table {
         };
 
         // perform a full scan of the entire table
-        let mut stream = table.query().execute().await?;
+        let mut stream = table.query().execute().await.map_err(ContextError::from)?;
         let mut results = Vec::new();
 
         while let Some(batch_result) = stream.next().await {
-            let batch = batch_result?;
+            let batch = batch_result.map_err(ContextError::from)?;
 
             let id_col = batch
                 .column_by_name("id")
-                .ok_or_else(|| Error::ExpectedColumn("id"))?
+                .ok_or_else(|| ContextError::ExpectedColumn("id"))?
                 .as_any()
                 .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| Error::FailedDowncast("id", "UInt64Array"))?;
+                .ok_or_else(|| ContextError::FailedDowncast("id", "UInt64Array"))?;
 
             let data_col = batch
                 .column_by_name("data")
-                .ok_or_else(|| Error::ExpectedColumn("data"))?
+                .ok_or_else(|| ContextError::ExpectedColumn("data"))?
                 .as_any()
                 .downcast_ref::<StringArray>()
-                .ok_or_else(|| Error::FailedDowncast("data", "StringArray"))?;
+                .ok_or_else(|| ContextError::FailedDowncast("data", "StringArray"))?;
 
             for i in 0..batch.num_rows() {
                 let id = id_col.value(i);
@@ -148,7 +151,7 @@ impl Table {
     }
 
     /// Writes record to the table.
-    pub async fn write<T>(&self, id: u64, vector: Vec<f32>, data: T) -> Result<()>
+    pub async fn write<T>(&self, id: u64, vector: Vec<f32>, data: T) -> Result<(), Error>
     where
         T: serde::Serialize,
     {
@@ -159,12 +162,15 @@ impl Table {
 
         let float_array = Arc::new(Float32Array::from(vector));
         let item_field = Arc::new(Field::new("item", DataType::Float32, true));
-        let vector_array = Arc::new(arrow_array::FixedSizeListArray::try_new(
-            item_field,
-            vector_len as i32,
-            float_array as Arc<dyn arrow_array::Array>,
-            None,
-        )?);
+        let vector_array = Arc::new(
+            arrow_array::FixedSizeListArray::try_new(
+                item_field,
+                vector_len as i32,
+                float_array as Arc<dyn arrow_array::Array>,
+                None,
+            )
+            .map_err(ContextError::from)?,
+        );
 
         let json_string = serde_json::to_string(&data)?;
         let data_array = Arc::new(StringArray::from(vec![json_string]));
@@ -191,21 +197,27 @@ impl Table {
                 vector_array as Arc<dyn arrow_array::Array>,
                 data_array as Arc<dyn arrow_array::Array>,
             ],
-        )?;
+        )
+        .map_err(ContextError::from)?;
 
         let batches = vec![batch];
 
         // writing to table
         match self.connection.open_table(&self.name).execute().await {
             Ok(table) => {
-                table.add(batches).execute().await?;
+                table
+                    .add(batches)
+                    .execute()
+                    .await
+                    .map_err(ContextError::from)?;
             }
             Err(_) => {
                 self.connection
                     .create_table(&self.name, batches)
                     .mode(CreateTableMode::Create)
                     .execute()
-                    .await?;
+                    .await
+                    .map_err(ContextError::from)?;
             }
         };
 
@@ -213,7 +225,7 @@ impl Table {
     }
 
     /// Writes batch of records (u64, Vec<f32>, T).
-    pub async fn write_batch<T>(&self, batch_data: Vec<(u64, Vec<f32>, T)>) -> Result<()>
+    pub async fn write_batch<T>(&self, batch_data: Vec<(u64, Vec<f32>, T)>) -> Result<(), Error>
     where
         T: serde::Serialize,
     {
@@ -230,7 +242,7 @@ impl Table {
 
         for (id, mut vector, data) in batch_data {
             if vector.len() != vector_len {
-                return Err(Error::InvalidBatchLength.into());
+                return Err(ContextError::InvalidBatchLength.into());
             }
             ids.push(id);
             flat_vectors.append(&mut vector);
@@ -241,12 +253,15 @@ impl Table {
         let id_array = Arc::new(UInt64Array::from(ids));
         let float_array = Arc::new(Float32Array::from(flat_vectors));
         let item_field = Arc::new(Field::new("item", DataType::Float32, true));
-        let vector_array = Arc::new(arrow_array::FixedSizeListArray::try_new(
-            item_field,
-            vector_len as i32,
-            float_array as Arc<dyn arrow_array::Array>,
-            None,
-        )?);
+        let vector_array = Arc::new(
+            arrow_array::FixedSizeListArray::try_new(
+                item_field,
+                vector_len as i32,
+                float_array as Arc<dyn arrow_array::Array>,
+                None,
+            )
+            .map_err(ContextError::from)?,
+        );
 
         let data_array = Arc::new(StringArray::from(json_strings));
 
@@ -272,21 +287,27 @@ impl Table {
                 vector_array as Arc<dyn arrow_array::Array>,
                 data_array as Arc<dyn arrow_array::Array>,
             ],
-        )?;
+        )
+        .map_err(ContextError::from)?;
 
         let batches = vec![record_batch];
 
         // writing to table
         match self.connection.open_table(&self.name).execute().await {
             Ok(table) => {
-                table.add(batches).execute().await?;
+                table
+                    .add(batches)
+                    .execute()
+                    .await
+                    .map_err(ContextError::from)?;
             }
             Err(_) => {
                 self.connection
                     .create_table(&self.name, batches)
                     .mode(CreateTableMode::Create)
                     .execute()
-                    .await?;
+                    .await
+                    .map_err(ContextError::from)?;
             }
         };
 
@@ -294,26 +315,26 @@ impl Table {
     }
 
     /// Removes record by ID.
-    pub async fn remove(&self, id: u64) -> Result<()> {
+    pub async fn remove(&self, id: u64) -> Result<(), Error> {
         if let Ok(table) = self.connection.open_table(&self.name).execute().await {
-            let predicate = str!("id = {}", id);
-            table.delete(&predicate).await?;
+            let predicate = format!("id = {}", id);
+            table.delete(&predicate).await.map_err(ContextError::from)?;
         }
 
         Ok(())
     }
 
     /// Clears all records in the table.
-    pub async fn clear(&self) -> Result<()> {
+    pub async fn clear(&self) -> Result<(), Error> {
         if let Ok(table) = self.connection.open_table(&self.name).execute().await {
-            table.delete("1 = 1").await?;
+            table.delete("1 = 1").await.map_err(ContextError::from)?;
         }
 
         Ok(())
     }
 
     // Optimizes table indexing.
-    pub async fn index(&self, partitions: u32, subvectors: u32) -> Result<()> {
+    pub async fn index(&self, partitions: u32, subvectors: u32) -> Result<(), Error> {
         if let Ok(table) = self.connection.open_table(&self.name).execute().await {
             let index_config = index::Index::IvfPq(
                 index::vector::IvfPqIndexBuilder::default()
@@ -325,6 +346,7 @@ impl Table {
                 .create_index(&["vector"], index_config)
                 .execute()
                 .await
+                .map_err(ContextError::from)
             {
                 let err_msg = e.to_string();
                 if err_msg.contains("KMeans cannot train") || err_msg.contains("choose a smaller K")

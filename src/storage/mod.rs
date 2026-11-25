@@ -1,10 +1,10 @@
 //! Key-Value database module.
 
 pub mod error;
-pub use error::Error as StorageError;
+pub use error::StorageError;
 
 pub mod table;
-pub use table::Table;
+pub use table::StorageTable;
 
 pub use sled;
 
@@ -26,9 +26,9 @@ impl Storage {
     }
 
     /// Opens database table.
-    pub async fn open_table(&self, name: &str) -> Result<Table, Error> {
+    pub async fn open_table(&self, name: &str) -> Result<StorageTable, Error> {
         let tree = self.db.open_tree(name).map_err(StorageError::from)?;
-        Ok(Table::new(tree))
+        Ok(StorageTable::new(tree))
     }
 
     /// Removes database table.

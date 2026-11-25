@@ -1,8 +1,9 @@
-use super::{ContextError, Record};
+use super::{ContextError, ContextRecord};
 use crate::prelude::*;
 
 use arrow_array::{Float32Array, RecordBatch, StringArray, UInt64Array};
 use arrow_schema::{DataType, Field, Schema};
+use futures::StreamExt;
 use lancedb::{
     Connection,
     database::CreateTableMode,
@@ -13,12 +14,12 @@ use serde::de::DeserializeOwned;
 
 /// RAG database table (LanceDB).
 #[derive(Clone)]
-pub struct Table {
+pub struct ContextTable {
     connection: Arc<Connection>,
     name: String,
 }
 
-impl Table {
+impl ContextTable {
     /// Creates new table instance.
     pub(super) fn new(connection: Arc<Connection>, name: impl Into<String>) -> Self {
         Self {
@@ -33,7 +34,7 @@ impl Table {
         vector: Vec<f32>,
         limit: Option<usize>,
         coef: f32,
-    ) -> Result<Option<Vec<Record<T>>>, Error>
+    ) -> Result<Option<Vec<ContextRecord<T>>>, Error>
     where
         T: DeserializeOwned,
     {
@@ -92,7 +93,7 @@ impl Table {
                 let json_str = data_col.value(i);
                 let data: T = json::from_str(json_str)?;
 
-                results.push(Record { id, data });
+                results.push(ContextRecord { id, data });
             }
         }
 
@@ -104,7 +105,7 @@ impl Table {
     }
 
     /// Reads all records from the table.
-    pub async fn read_all<T>(&self) -> Result<Option<Vec<Record<T>>>, Error>
+    pub async fn read_all<T>(&self) -> Result<Option<Vec<ContextRecord<T>>>, Error>
     where
         T: DeserializeOwned,
     {
@@ -139,7 +140,7 @@ impl Table {
                 let json_str = data_col.value(i);
                 let data: T = json::from_str(json_str)?;
 
-                results.push(Record { id, data });
+                results.push(ContextRecord { id, data });
             }
         }
 

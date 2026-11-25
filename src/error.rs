@@ -6,11 +6,11 @@ pub enum Error {
 
     Json(Box<serde_json::Error>),
 
-    Join(atoman::task::JoinError),
+    Join(tokio::task::JoinError),
 
     #[cfg(feature = "context")]
-    Context(crate::context::error::Error),
+    Context(crate::ContextError),
 
     #[cfg(feature = "storage")]
-    Storage(crate::storage::error::Error),
+    Storage(crate::StorageError),
 }

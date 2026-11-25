@@ -1,13 +1,13 @@
 //! RAG database module.
 
 pub mod error;
-pub use error::Error as ContextError;
+pub use error::ContextError;
 
 pub mod record;
-pub use record::Record;
+pub use record::ContextRecord;
 
 pub mod table;
-pub use table::Table;
+pub use table::ContextTable;
 
 pub use arrow_array;
 pub use arrow_schema;
@@ -15,7 +15,7 @@ pub use lancedb;
 pub use serde_arrow;
 
 use crate::prelude::*;
-use atoman::fs;
+use tokio::fs;
 
 /// RAG context database (based on LanceDB).
 #[derive(Clone)]
@@ -41,8 +41,8 @@ impl Context {
     }
 
     /// Opens database table.
-    pub async fn open_table(&self, name: &str) -> Result<Table, Error> {
-        Ok(Table::new(self.conn.clone(), name))
+    pub async fn open_table(&self, name: &str) -> Result<ContextTable, Error> {
+        Ok(ContextTable::new(self.conn.clone(), name))
     }
 
     /// Removes database table.

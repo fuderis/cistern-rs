@@ -1,6 +1,6 @@
 use macron::{Display, Error, From};
 
 #[derive(Debug, Display, Error, From)]
-pub enum Error {
+pub enum StorageError {
     Sled(sled::Error),
 }

@@ -2,14 +2,15 @@ use super::StorageError;
 use crate::prelude::*;
 
 use serde::de::DeserializeOwned;
+use tokio::task;
 
 /// Key-value database table (Sled).
 #[derive(Clone)]
-pub struct Table {
+pub struct StorageTable {
     tree: sled::Tree,
 }
 
-impl Table {
+impl StorageTable {
     /// Creates new table instance.
     pub(crate) fn new(tree: sled::Tree) -> Self {
         Self { tree }
@@ -23,7 +24,7 @@ impl Table {
     {
         let tree = self.tree.clone();
 
-        atoman::spawn_blocking(move || -> Result<Option<V>, Error> {
+        task::spawn_blocking(move || -> Result<Option<V>, Error> {
             let key_bytes = serde_json::to_vec(&key)?;
 
             if let Some(bytes) = tree.get(key_bytes).map_err(StorageError::from)? {
@@ -43,7 +44,7 @@ impl Table {
     {
         let tree = self.tree.clone();
 
-        atoman::spawn_blocking(move || -> Result<Vec<(K, V)>, Error> {
+        task::spawn_blocking(move || -> Result<Vec<(K, V)>, Error> {
             let mut items = Vec::new();
 
             for res in tree.iter() {
@@ -66,7 +67,7 @@ impl Table {
     {
         let tree = self.tree.clone();
 
-        atoman::spawn_blocking(move || -> Result<(), Error> {
+        task::spawn_blocking(move || -> Result<(), Error> {
             let key_bytes = serde_json::to_vec(&key)?;
             let value_bytes = serde_json::to_vec(&value)?;
 
@@ -81,7 +82,7 @@ impl Table {
     pub async fn flush(&self) -> Result<(), Error> {
         let tree = self.tree.clone();
 
-        atoman::spawn_blocking(move || -> Result<(), Error> {
+        task::spawn_blocking(move || -> Result<(), Error> {
             tree.flush().map_err(StorageError::from)?;
             Ok(())
         })
@@ -95,7 +96,7 @@ impl Table {
     {
         let tree = self.tree.clone();
 
-        atoman::spawn_blocking(move || -> Result<(), Error> {
+        task::spawn_blocking(move || -> Result<(), Error> {
             let key_bytes = serde_json::to_vec(&key)?;
 
             tree.remove(key_bytes).map_err(StorageError::from)?;
@@ -108,7 +109,7 @@ impl Table {
     pub async fn clear(&self) -> Result<(), Error> {
         let tree = self.tree.clone();
 
-        atoman::spawn_blocking(move || -> Result<(), Error> {
+        task::spawn_blocking(move || -> Result<(), Error> {
             tree.clear().map_err(StorageError::from)?;
             Ok(())
         })

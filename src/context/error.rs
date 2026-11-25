@@ -1,7 +1,7 @@
 use macron::{Display, Error, From};
 
 #[derive(Debug, Display, Error, From)]
-pub enum Error {
+pub enum ContextError {
     Lance(lancedb::Error),
 
     ArrowSchema(arrow_schema::ArrowError),

@@ -1,10 +1,6 @@
 #![allow(unused_imports)]
 
-pub type DynError = Box<dyn std::error::Error + Send + Sync>;
-
 pub use crate::error::Error;
-
-pub use atoman::StreamExt;
 
 pub use std::{
     path::{Path, PathBuf},

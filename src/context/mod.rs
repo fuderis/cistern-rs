@@ -3,11 +3,13 @@
 pub mod error;
 pub use error::ContextError;
 
+mod lexical;
+
 pub mod record;
 pub use record::ContextRecord;
 
 pub mod table;
-pub use table::ContextTable;
+pub use table::{ContextTable, ScoredRecord, SearchOptions};
 
 pub use arrow_array;
 pub use arrow_schema;
